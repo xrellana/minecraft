@@ -6,7 +6,6 @@
 |---|---|---|---|
 | **Admin Wand(管理员权杖)** | 一根权杖弹菜单:满附魔、整理背包、昼夜切换、回家传送 | `AdminWand.mcpack` | 1.21.30 |
 | **Buff Wand(祝福权杖)** | 常驻 Buff 权杖:勾选想要的 buff 自动续杯永不掉线,附带 255 级整活模式 | `BuffWand.mcpack` | 1.21.30 |
-| **Max Enchant Helper** | 一条指令给装备附上全部满级附魔(权杖的前身,功能已并入权杖) | `MaxEnchantHelper.mcpack` | 1.21.30 |
 
 ## 📦 安装
 
@@ -128,23 +127,9 @@ ores
 
 ---
 
-## ⚔️ Max Enchant Helper
-
-权杖出现前的独立附魔包,功能已并入权杖,单独用也可以:
-
-```
-/scriptevent max:enchant   # 给手持物品附满附魔
-/scriptevent max:all       # 给全身装备附满附魔
-/scriptevent max:debug     # 打印附魔诊断信息
-```
-
-互斥附魔的取舍规则与权杖一致(锋利、保护、时运、深海探索者、无限、多重射击、忠诚+引雷优先)。
-
----
-
 ## 🔧 从源码打包
 
-行为包源码分别在 `admin_wand_bp/`、`buff_wand_bp/` 和 `max_enchant_bp/` 目录。修改后用 PowerShell 重新打包:
+行为包源码分别在 `admin_wand_bp/` 和 `buff_wand_bp/` 目录。修改后用 PowerShell 重新打包:
 
 ```powershell
 Compress-Archive -Path .\admin_wand_bp\* -DestinationPath .\AdminWand.zip -Force

@@ -23,7 +23,7 @@ function isWand(item) {
 }
 
 // ---------------------------------------------------------------------------
-// Max enchant (same logic as the Max Enchant Helper pack)
+// Max enchant
 // ---------------------------------------------------------------------------
 
 // Curse enchantments are skipped (and stripped from items) by default.
