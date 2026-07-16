@@ -4,7 +4,7 @@
         "name": "Max Enchant Helper",
         "description": "One command to apply every compatible enchantment at max level. Use /scriptevent max:enchant (held item) or /scriptevent max:all (all equipment).",
         "uuid": "6142cf59-5794-40e1-ae6e-ce1e9157aeca",
-        "version": [1, 2, 0],
+        "version": [1, 3, 0],
         "min_engine_version": [1, 21, 30]
     },
     "modules": [
@@ -13,7 +13,7 @@
             "language": "javascript",
             "uuid": "392adc82-ccc5-4793-9497-56c5d14e1a6a",
             "entry": "scripts/main.js",
-            "version": [1, 2, 0]
+            "version": [1, 3, 0]
         }
     ],
     "dependencies": [

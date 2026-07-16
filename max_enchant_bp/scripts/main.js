@@ -1,6 +1,6 @@
 import { world, system, EquipmentSlot, EnchantmentTypes } from "@minecraft/server";
 
-const VERSION = "1.2";
+const VERSION = "1.3";
 
 // Curse enchantments are skipped (and stripped from items) by default.
 // Fuzzy match, because the script API ids do not always match the command
@@ -42,8 +42,40 @@ function getAllEnchantmentTypes() {
     return FALLBACK_IDS.map((id) => EnchantmentTypes.get(id)).filter((t) => t);
 }
 
+// Mutually exclusive enchantment groups, in preference order. For each group,
+// members already on the item are stripped first so a lower-priority one
+// (e.g. Smite) cannot block the preferred one (Sharpness), then the first
+// member the item accepts is applied at max level. Later members act as
+// fallbacks for items the winner does not fit (e.g. Density for maces, or
+// Mending for everything that is not a bow).
+const EXCLUSIVE_GROUPS = [
+    // Melee damage: swords/axes get Sharpness, maces fall through to Density.
+    ["sharpness", "density", "breach", "smite", "bane_of_arthropods"],
+    // Armor: plain Protection over the element-specific ones.
+    ["protection", "fire_protection", "blast_protection", "projectile_protection"],
+    // Digging tools: Fortune over Silk Touch.
+    ["fortune", "silk_touch"],
+    // Boots: Depth Strider over Frost Walker.
+    ["depth_strider", "frost_walker"],
+    // Bows: Infinity over Mending (they only conflict on bows).
+    ["infinity", "mending"],
+    // Crossbows: Multishot over Piercing.
+    ["multishot", "piercing"],
+    // Tridents: Loyalty + Channeling over Riptide (Riptide conflicts with both).
+    ["loyalty", "riptide"],
+    ["channeling", "riptide"],
+];
+const EXCLUSIVE_IDS = new Set(EXCLUSIVE_GROUPS.flat());
+
+// Normalize so "minecraft:sharpness" and "sharpness" compare equal.
+function bareId(id) {
+    return String(id ?? "").toLowerCase().replace("minecraft:", "");
+}
+
 // Apply every compatible enchantment at its max level to the given ItemStack,
-// and strip any curse enchantments already on it.
+// and strip any curse enchantments already on it. Mutually exclusive
+// enchantments are resolved by EXCLUSIVE_GROUPS preference, replacing any
+// lower-priority member already on the item.
 // Returns { added, removed } counts, or null if the item is not enchantable.
 function enchantMax(item, player) {
     const enchantable = item?.getComponent("minecraft:enchantable");
@@ -61,20 +93,69 @@ function enchantMax(item, player) {
         player.sendMessage(`§c[MaxEnchant] 移除诅咒时出错: ${e}`);
     }
 
-    let added = 0;
-    for (const type of getAllEnchantmentTypes()) {
-        if (isCurse(type.id)) continue;
-        const enchantment = { type, level: type.maxLevel };
+    const types = getAllEnchantmentTypes();
+    const typesById = new Map(types.map((t) => [bareId(t.id), t]));
+
+    const tryAdd = (type) => {
         try {
-            // canAddEnchantment also rejects conflicting enchantments
-            // (e.g. Sharpness vs Smite), so the first compatible one wins.
+            const enchantment = { type, level: type.maxLevel };
             if (enchantable.canAddEnchantment(enchantment)) {
                 enchantable.addEnchantment(enchantment);
-                added++;
+                return true;
             }
         } catch {
             // Ignore enchantments that cannot be applied to this item.
         }
+        return false;
+    };
+
+    let added = 0;
+    for (const group of EXCLUSIVE_GROUPS) {
+        // Strip existing members so they cannot block a higher-priority one.
+        const stripped = [];
+        try {
+            for (const existing of enchantable.getEnchantments()) {
+                if (group.includes(bareId(existing.type.id))) {
+                    stripped.push({ type: existing.type, level: existing.level });
+                    enchantable.removeEnchantment(existing.type);
+                }
+            }
+        } catch {
+            // Ignore items whose enchantment list cannot be read.
+        }
+        let winner;
+        for (const id of group) {
+            const type = typesById.get(id);
+            if (type && tryAdd(type)) {
+                winner = type;
+                break;
+            }
+        }
+        if (winner) {
+            // Count only real changes, so re-running an already maxed item
+            // still reports "nothing to do".
+            const alreadyHadWinner = stripped.some(
+                (s) => bareId(s.type.id) === bareId(winner.id) && s.level === winner.maxLevel
+            );
+            if (!alreadyHadWinner) added++;
+        } else {
+            // The item takes none of the group (should only happen if the API
+            // rejects a re-add); restore whatever was stripped.
+            for (const s of stripped) {
+                try {
+                    enchantable.addEnchantment({ type: s.type, level: s.level });
+                } catch {
+                    // Nothing more we can do; the enchantment is lost.
+                }
+            }
+        }
+    }
+
+    // Everything outside the exclusive groups has no conflicts; apply it all.
+    for (const type of types) {
+        if (isCurse(type.id)) continue;
+        if (EXCLUSIVE_IDS.has(bareId(type.id))) continue;
+        if (tryAdd(type)) added++;
     }
     return { added, removed };
 }
