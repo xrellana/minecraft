@@ -4,7 +4,7 @@
         "name": "Buff Wand (祝福权杖)",
         "description": "Hold the wand and press use to configure persistent buffs (auto-refreshed, particles hidden) or clear all effects. Fun mode applies every buff at level 255. Get the wand with /scriptevent buff:give.",
         "uuid": "3f5543de-57bb-4a98-b199-4e283aef9b99",
-        "version": [1, 1, 0],
+        "version": [1, 2, 0],
         "min_engine_version": [1, 21, 30]
     },
     "modules": [
@@ -13,7 +13,7 @@
             "language": "javascript",
             "uuid": "454c5e67-7161-49d1-926a-1a262bb99c12",
             "entry": "scripts/main.js",
-            "version": [1, 1, 0]
+            "version": [1, 2, 0]
         }
     ],
     "dependencies": [

@@ -1,7 +1,7 @@
 import { world, system, ItemStack } from "@minecraft/server";
 import { ActionFormData, ModalFormData } from "@minecraft/server-ui";
 
-const VERSION = "1.1";
+const VERSION = "1.2";
 
 // The wand is a renamed vanilla breeze rod, so no resource pack is needed
 // (the blaze rod is already taken by the Admin Wand pack).
@@ -10,11 +10,13 @@ const WAND_TYPE = "minecraft:breeze_rod";
 const WAND_NAME = "§r§d祝福权杖";
 const CONFIG_PROPERTY = "buffwand:config";
 
-// Effects are applied for 60s and refreshed every 20s, so they never run out.
-// The 60s floor also matters for night vision: below ~10s remaining the
+// Effects are applied for 60s. Every 5s each buff's remaining duration is
+// checked, and any buff missing or below the 30s threshold is re-applied.
+// The 30s floor also matters for night vision: below ~10s remaining the
 // screen starts flashing dark, and this schedule never gets close to that.
 const EFFECT_DURATION_TICKS = 60 * 20;
-const REFRESH_INTERVAL_TICKS = 20 * 20;
+const REFRESH_INTERVAL_TICKS = 5 * 20;
+const REFRESH_THRESHOLD_TICKS = 30 * 20;
 
 // Fun mode amplifier. Amplifiers are 0-based, so 255 shows as level 256 —
 // the maximum the /effect command and the script API accept.
@@ -73,10 +75,22 @@ function saveConfig(player, config) {
 // Applying / refreshing / removing effects
 // ---------------------------------------------------------------------------
 
-function applyBuffs(player, config) {
+function applyBuffs(player, config, { topUpOnly = false } = {}) {
     const enabled = new Set(config.buffs);
     for (const buff of BUFFS) {
         if (!enabled.has(buff.key)) continue;
+        // In top-up mode, leave buffs alone while they still have plenty of
+        // time left; only re-apply the ones that are missing or running low.
+        if (topUpOnly) {
+            let remaining = 0;
+            try {
+                remaining = player.getEffect(buff.effect)?.duration ?? 0;
+            } catch {
+                // Unknown effect on this API version; addEffect below will
+                // also fail and be skipped.
+            }
+            if (remaining > REFRESH_THRESHOLD_TICKS) continue;
+        }
         const amplifier = config.fun && !buff.binary
             ? (buff.funAmplifier ?? FUN_AMPLIFIER)
             : buff.amplifier;
@@ -121,7 +135,7 @@ function removeAllEffects(player) {
 system.runInterval(() => {
     for (const player of world.getAllPlayers()) {
         const config = loadConfig(player);
-        if (config.buffs.length > 0) applyBuffs(player, config);
+        if (config.buffs.length > 0) applyBuffs(player, config, { topUpOnly: true });
     }
 }, REFRESH_INTERVAL_TICKS);
 
@@ -249,6 +263,11 @@ system.afterEvents.scriptEventReceive.subscribe((event) => {
 // Startup banner so it is easy to confirm which script version actually loaded.
 console.warn(`[BuffWand] script v${VERSION} loaded`);
 world.afterEvents.playerSpawn.subscribe((event) => {
+    // Restore buffs immediately on join and after respawn (death clears all
+    // effects) instead of waiting for the next refresh tick.
+    const config = loadConfig(event.player);
+    if (config.buffs.length > 0) applyBuffs(event.player, config);
+
     if (!event.initialSpawn) return;
     system.runTimeout(() => {
         event.player.sendMessage(
