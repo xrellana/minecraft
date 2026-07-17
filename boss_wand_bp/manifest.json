@@ -4,7 +4,7 @@
         "name": "Boss Wand (召唤权杖)",
         "description": "Hold the wand and press use to summon bosses (Wither, Ender Dragon, Warden, ...) in front of you, or clear every boss the wand has summoned. Get the wand with /scriptevent boss:give.",
         "uuid": "7773f864-6917-4f06-9543-6230ec81c59b",
-        "version": [1, 0, 0],
+        "version": [1, 0, 1],
         "min_engine_version": [1, 21, 30]
     },
     "modules": [
@@ -13,7 +13,7 @@
             "language": "javascript",
             "uuid": "4810528a-d9a2-4b6f-9353-42bd401f5de8",
             "entry": "scripts/main.js",
-            "version": [1, 0, 0]
+            "version": [1, 0, 1]
         }
     ],
     "dependencies": [

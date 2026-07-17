@@ -1,7 +1,7 @@
 import { world, system, ItemStack } from "@minecraft/server";
 import { ActionFormData, MessageFormData } from "@minecraft/server-ui";
 
-const VERSION = "1.0";
+const VERSION = "1.0.1";
 
 // The wand is a renamed vanilla nether star, so no resource pack is needed
 // (blaze rod and breeze rod are taken by the other wand packs).
@@ -48,7 +48,8 @@ const BOSSES = [
         name: "劫掠兽",
     },
     {
-        typeId: "minecraft:evoker",
+        // Bedrock keeps the legacy id; "minecraft:evoker" is Java-only.
+        typeId: "minecraft:evocation_illager",
         label: "唤魔者\n§7召唤尖牙和恼鬼，掉落不死图腾",
         name: "唤魔者",
     },
