@@ -1,0 +1,88 @@
+name: Release
+
+# Publishes a GitHub Release whenever the pack version in src/manifest.json
+# changes. The release asset is built here; nothing is ever written back to
+# the repository.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tools/**"
+      - "WandToolkit.mcpack"
+  workflow_dispatch:
+
+# Never let two pushes race to create the same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the tag and the release
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, for version checks and notes
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The committed .mcpack must match src/. This is the guardrail that
+      # replaces the old "remember to re-run Compress-Archive" step: if it was
+      # not rebuilt before committing, the build fails here instead of
+      # shipping a stale pack.
+      - name: Verify WandToolkit.mcpack is in sync with src/
+        run: npm run check
+
+      - name: Read pack version
+        id: meta
+        run: |
+          version="$(node -p "require('./src/manifest.json').header.version.join('.')")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse --verify --quiet "refs/tags/v$version" > /dev/null; then
+            echo "Tag v$version already exists — nothing to release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version v$version has no tag yet — releasing."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release notes
+        if: steps.meta.outputs.should_release == 'true'
+        run: |
+          previous="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+          if [ -n "$previous" ]; then
+            range="$previous..HEAD"
+            echo "## 更新内容" > notes.md
+          else
+            range="HEAD"
+            echo "## 首个版本" > notes.md
+          fi
+          echo "" >> notes.md
+          git log --no-merges --pretty='- %s' "$range" -- src tools >> notes.md
+          echo "" >> notes.md
+          echo "---" >> notes.md
+          echo "" >> notes.md
+          echo "下载 \`WandToolkit.mcpack\` 双击导入即可，安装和用法见 [README](https://github.com/${{ github.repository }}#readme)。" >> notes.md
+          if [ -n "$previous" ]; then
+            echo "" >> notes.md
+            echo "**完整差异**: https://github.com/${{ github.repository }}/compare/$previous...v${{ steps.meta.outputs.version }}" >> notes.md
+          fi
+          cat notes.md
+
+      - name: Create release
+        if: steps.meta.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.meta.outputs.version }}" \
+            WandToolkit.mcpack \
+            --title "Wand Toolkit v${{ steps.meta.outputs.version }}" \
+            --notes-file notes.md
