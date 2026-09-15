@@ -5,9 +5,15 @@
 //   node tools/build.mjs --check   verify the committed .mcpack is up to date
 //                                  (exit 1 if not) without writing anything
 //
-// The output is byte-for-byte deterministic: entries are emitted in sorted
-// order with a fixed timestamp, so the same sources always produce the same
-// file. That is what makes --check a plain byte comparison.
+// The output is deterministic for a given Node build: entries are emitted in
+// sorted order with a fixed timestamp, so rebuilding unchanged sources does
+// not produce a spurious git diff.
+//
+// --check deliberately compares CONTENT (entry names, sizes and CRCs read
+// from the archive's central directory) rather than raw file bytes, because
+// zlib's compressed output can differ between Node versions. Comparing bytes
+// would fail on CI purely because it runs a different Node than the machine
+// that built the pack.
 
 import { deflateRawSync } from "node:zlib";
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
@@ -170,27 +176,102 @@ function buildZip(entries) {
 }
 
 // ---------------------------------------------------------------------------
+// ZIP reader: just enough of the central directory to list what an existing
+// archive contains, without decompressing anything.
+// ---------------------------------------------------------------------------
 
-function main() {
-    const check = process.argv.includes("--check");
-    const { manifest, version } = loadManifest();
-    const entries = collectEntries(version);
-    const zip = buildZip(entries);
+function readZipManifest(zip) {
+    // Locate the end-of-central-directory record. The build writes no archive
+    // comment, so it sits at the very end, but scan backwards regardless.
+    let eocd = -1;
+    for (let i = zip.length - 22; i >= 0; i--) {
+        if (zip.readUInt32LE(i) === 0x06054b50) {
+            eocd = i;
+            break;
+        }
+    }
+    if (eocd === -1) throw new Error("not a ZIP archive (no end-of-central-directory record)");
 
-    if (check) {
-        if (!existsSync(OUTPUT)) {
-            console.error(`✗ WandToolkit.mcpack is missing; run: node tools/build.mjs`);
-            process.exit(1);
+    const count = zip.readUInt16LE(eocd + 10);
+    let offset = zip.readUInt32LE(eocd + 16);
+
+    const entries = [];
+    for (let i = 0; i < count; i++) {
+        if (zip.readUInt32LE(offset) !== 0x02014b50) {
+            throw new Error(`corrupt central directory at byte ${offset}`);
         }
-        if (!readFileSync(OUTPUT).equals(zip)) {
-            console.error(
-                `✗ WandToolkit.mcpack is out of date with src/; run: node tools/build.mjs`
-            );
-            process.exit(1);
-        }
-        console.log(`✓ WandToolkit.mcpack matches src/ (v${version})`);
+        const crc = zip.readUInt32LE(offset + 16);
+        const size = zip.readUInt32LE(offset + 24);
+        const nameLen = zip.readUInt16LE(offset + 28);
+        const extraLen = zip.readUInt16LE(offset + 30);
+        const commentLen = zip.readUInt16LE(offset + 32);
+        const name = zip.toString("utf8", offset + 46, offset + 46 + nameLen);
+        entries.push({ name, size, crc });
+        offset += 46 + nameLen + extraLen + commentLen;
+    }
+    return entries;
+}
+
+function describeEntries(entries) {
+    return entries
+        .map((e) => `${e.name}\t${e.size}\t${e.crc}`)
+        .sort()
+        .join("\n");
+}
+
+// ---------------------------------------------------------------------------
+
+function runCheck(entries, version) {
+    if (!existsSync(OUTPUT)) {
+        console.error("✗ WandToolkit.mcpack is missing; run: npm run build");
+        process.exit(1);
+    }
+
+    const expected = entries.map((e) => ({
+        name: e.name,
+        size: e.data.length,
+        crc: crc32(e.data),
+    }));
+
+    let actual;
+    try {
+        actual = readZipManifest(readFileSync(OUTPUT));
+    } catch (e) {
+        console.error(`✗ WandToolkit.mcpack is unreadable: ${e.message}`);
+        process.exit(1);
+    }
+
+    if (describeEntries(actual) === describeEntries(expected)) {
+        console.log(`✓ WandToolkit.mcpack matches src/ (v${version}, ${expected.length} files)`);
         return;
     }
+
+    console.error("✗ WandToolkit.mcpack is out of date with src/; run: npm run build\n");
+    const actualByName = new Map(actual.map((e) => [e.name, e]));
+    const expectedByName = new Map(expected.map((e) => [e.name, e]));
+    for (const { name } of expected) {
+        const got = actualByName.get(name);
+        if (!got) console.error(`    missing from pack: ${name}`);
+        else if (got.crc !== expectedByName.get(name).crc) {
+            console.error(`    differs from src/:  ${name}`);
+        }
+    }
+    for (const { name } of actual) {
+        if (!expectedByName.has(name)) console.error(`    stale in pack:      ${name}`);
+    }
+    process.exit(1);
+}
+
+function main() {
+    const { manifest, version } = loadManifest();
+    const entries = collectEntries(version);
+
+    if (process.argv.includes("--check")) {
+        runCheck(entries, version);
+        return;
+    }
+
+    const zip = buildZip(entries);
 
     writeFileSync(OUTPUT, zip);
     console.log(

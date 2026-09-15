@@ -155,7 +155,19 @@ npm run build     # 打包成 WandToolkit.mcpack
 npm run check     # 校验仓库里的 .mcpack 和 src/ 是否一致
 ```
 
-打包结果是**确定性**的：同样的源码永远产出字节完全相同的文件，所以 `npm run check` 只是一次字节比对。
+打包结果是确定性的（条目排序固定、时间戳固定），所以源码没变时重新打包不会产生无谓的 git diff。
+
+`npm run check` 比对的是**内容**（条目名、大小、CRC），不是原始字节——zlib 的压缩输出在不同 Node 版本之间可能不一样，比字节会导致本地和 CI 结论不一致。
+
+### 发布
+
+`.github/workflows/release.yml` 在 `src/` 有改动推到 `main` 时运行：
+
+1. `npm run check` —— 仓库里的 `.mcpack` 和 `src/` 不一致就直接失败（代替了以前「记得重新 Compress-Archive」那一步）；
+2. 读 `src/manifest.json` 的版本号，**已经有同名 tag 就跳过**，没有才发布；
+3. 打 `v<版本号>` tag，创建 Release，附上 `WandToolkit.mcpack`，发布说明由 `src/`、`tools/` 下的 commit 自动生成。
+
+所以**发版方式就是改 `src/manifest.json` 里的版本号**，重新打包后一起提交。CI 不会向仓库写任何东西。
 
 ### 目录结构
 
