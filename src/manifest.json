@@ -1,0 +1,33 @@
+{
+    "format_version": 2,
+    "header": {
+        "name": "Wand Toolkit (万能权杖)",
+        "description": "一根权杖搞定一切：满附魔、整理背包、常驻 Buff、召唤 Boss、昼夜切换、回家传送。输入 /scriptevent wand:give 获取权杖。",
+        "uuid": "3113b06b-1a96-43f9-8045-2baea92ee9b2",
+        "version": [1, 0, 0],
+        "min_engine_version": [1, 21, 30]
+    },
+    "modules": [
+        {
+            "type": "script",
+            "language": "javascript",
+            "uuid": "78e0383a-e9ac-4775-959a-e8a826adee26",
+            "entry": "scripts/main.js",
+            "version": [1, 0, 0]
+        }
+    ],
+    "dependencies": [
+        {
+            "module_name": "@minecraft/server",
+            "version": "1.14.0"
+        },
+        {
+            "module_name": "@minecraft/server-ui",
+            "version": "1.3.0"
+        }
+    ],
+    "metadata": {
+        "authors": ["Zane"],
+        "license": "MIT"
+    }
+}

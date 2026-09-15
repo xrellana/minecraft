@@ -1,14 +1,11 @@
-import { world, system, ItemStack } from "@minecraft/server";
+// Persistent buffs: a checkbox form of effects the script keeps topped up
+// for as long as they stay enabled.
+
+import { world, system } from "@minecraft/server";
 import { ActionFormData, ModalFormData } from "@minecraft/server-ui";
+import { showForm, showActionMenu } from "./core.js";
 
-const VERSION = "1.2";
-
-// The wand is a renamed vanilla breeze rod, so no resource pack is needed
-// (the blaze rod is already taken by the Admin Wand pack).
-// Both the type id and the display name must match for the menu to open.
-const WAND_TYPE = "minecraft:breeze_rod";
-const WAND_NAME = "§r§d祝福权杖";
-const CONFIG_PROPERTY = "buffwand:config";
+const CONFIG_PROPERTY = "wand:buffs";
 
 // Effects are applied for 60s. Every 5s each buff's remaining duration is
 // checked, and any buff missing or below the 30s threshold is re-applied.
@@ -42,10 +39,6 @@ const BUFFS = [
     { key: "saturation", effect: "minecraft:saturation", label: "饱和", amplifier: 0 },
     { key: "health_boost", effect: "minecraft:health_boost", label: "生命提升 II（+4❤）", amplifier: 1 },
 ];
-
-function isWand(item) {
-    return item?.typeId === WAND_TYPE && item?.nameTag === WAND_NAME;
-}
 
 // ---------------------------------------------------------------------------
 // Per-player config, persisted via dynamic properties so it survives
@@ -105,8 +98,8 @@ function applyBuffs(player, config, { topUpOnly = false } = {}) {
     }
 }
 
-// Remove every effect managed by this pack. Re-adding an effect with a LOWER
-// amplifier does not override an active higher one, so a clean remove +
+// Remove every effect managed by this feature. Re-adding an effect with a
+// LOWER amplifier does not override an active higher one, so a clean remove +
 // re-apply is the only reliable way to switch fun mode off.
 function removeManagedBuffs(player) {
     for (const buff of BUFFS) {
@@ -131,14 +124,6 @@ function removeAllEffects(player) {
     return removed;
 }
 
-// The refresh loop: keep every configured player's buffs topped up.
-system.runInterval(() => {
-    for (const player of world.getAllPlayers()) {
-        const config = loadConfig(player);
-        if (config.buffs.length > 0) applyBuffs(player, config, { topUpOnly: true });
-    }
-}, REFRESH_INTERVAL_TICKS);
-
 // ---------------------------------------------------------------------------
 // Buff config form (a single modal that both enables and disables:
 // toggles open pre-checked with the current state, submit syncs everything)
@@ -154,39 +139,31 @@ function openConfigForm(player) {
         form.toggle(buff.label, enabled.has(buff.key));
     }
 
-    form.show(player).then((response) => {
-        if (response.canceled) return;
-        try {
-            const values = response.formValues;
-            const newConfig = {
-                fun: values[0] === true,
-                buffs: BUFFS.filter((_, i) => values[i + 1] === true).map((b) => b.key),
-            };
+    showForm(player, form, (response) => {
+        const values = response.formValues;
+        const newConfig = {
+            fun: values[0] === true,
+            buffs: BUFFS.filter((_, i) => values[i + 1] === true).map((b) => b.key),
+        };
 
-            // Clean slate so both unchecked buffs and amplifier changes
-            // (fun mode on/off) take effect immediately.
-            removeManagedBuffs(player);
-            saveConfig(player, newConfig);
-            applyBuffs(player, newConfig);
+        // Clean slate so both unchecked buffs and amplifier changes
+        // (fun mode on/off) take effect immediately.
+        removeManagedBuffs(player);
+        saveConfig(player, newConfig);
+        applyBuffs(player, newConfig);
 
-            if (newConfig.buffs.length === 0) {
-                player.sendMessage("§e已关闭全部常驻 Buff。");
-            } else {
-                let msg = `§a已启用 ${newConfig.buffs.length} 个常驻 Buff，掉线重连也会自动恢复。`;
-                if (newConfig.fun) msg += " §d🎉 整活模式已开启（255 级）！";
-                player.sendMessage(msg);
-            }
-        } catch (e) {
-            player.sendMessage(`§c[祝福权杖] 执行出错: ${e}\n${e?.stack ?? ""}`);
+        if (newConfig.buffs.length === 0) {
+            player.sendMessage("§e已关闭全部常驻 Buff。");
+        } else {
+            let msg = `§a已启用 ${newConfig.buffs.length} 个常驻 Buff，掉线重连也会自动恢复。`;
+            if (newConfig.fun) msg += " §d🎉 整活模式已开启（255 级）！";
+            player.sendMessage(msg);
         }
     });
 }
 
-// ---------------------------------------------------------------------------
-// Clear all effects (also disables the persistent config, otherwise the
-// refresh loop would re-apply everything within seconds)
-// ---------------------------------------------------------------------------
-
+// Clearing also disables the persistent config, otherwise the refresh loop
+// would re-apply everything within seconds.
 function actionClearAllEffects(player) {
     const config = loadConfig(player);
     saveConfig(player, { buffs: [], fun: config.fun });
@@ -199,10 +176,15 @@ function actionClearAllEffects(player) {
 }
 
 // ---------------------------------------------------------------------------
-// Main menu
+// Submenu
 // ---------------------------------------------------------------------------
 
-function openMenu(player) {
+const BUFF_MENU_ACTIONS = [
+    { label: "配置常驻 Buff »\n§7勾选开启，取消勾选关闭", handler: openConfigForm },
+    { label: "清除所有效果\n§7包括中毒、凋零等负面效果", handler: actionClearAllEffects },
+];
+
+export function openBuffMenu(player) {
     const config = loadConfig(player);
     const status =
         config.buffs.length === 0
@@ -210,68 +192,27 @@ function openMenu(player) {
             : `§7当前启用 §a${config.buffs.length}§7 个常驻 Buff` +
               (config.fun ? "，§d整活模式开启中（255 级）" : "") + "。";
 
-    const form = new ActionFormData()
-        .title("§l祝福权杖")
-        .body(`${status}\n\n选择一个功能：`)
-        .button("配置常驻 Buff »\n§7勾选开启，取消勾选关闭")
-        .button("清除所有效果\n§7包括中毒、凋零等负面效果");
-
-    form.show(player).then((response) => {
-        if (response.canceled) return;
-        try {
-            if (response.selection === 0) openConfigForm(player);
-            else if (response.selection === 1) actionClearAllEffects(player);
-        } catch (e) {
-            player.sendMessage(`§c[祝福权杖] 执行出错: ${e}\n${e?.stack ?? ""}`);
-        }
+    showActionMenu(player, {
+        form: new ActionFormData().title("§l常驻 Buff").body(`${status}\n\n选择一个功能：`),
+        actions: BUFF_MENU_ACTIONS,
     });
 }
 
-world.afterEvents.itemUse.subscribe((event) => {
-    if (!isWand(event.itemStack)) return;
-    const player = event.source;
-    if (!player || player.typeId !== "minecraft:player") return;
-    // Defer one tick so the form is not dismissed as "UserBusy" while the
-    // use animation is still in progress.
-    system.run(() => openMenu(player));
-});
-
 // ---------------------------------------------------------------------------
-// Getting the wand: /scriptevent buff:give
+// Background upkeep
 // ---------------------------------------------------------------------------
 
-function giveWand(player) {
-    const wand = new ItemStack(WAND_TYPE, 1);
-    wand.nameTag = WAND_NAME;
-    wand.setLore(["§7长按（使用）配置常驻 Buff"]);
-    const container = player.getComponent("minecraft:inventory")?.container;
-    const leftover = container?.addItem(wand);
-    if (leftover) {
-        player.sendMessage("§e背包已满，无法给予权杖。");
-    } else {
-        player.sendMessage("§a已获得 §d祝福权杖§a！手持并长按（使用）即可打开菜单。");
+// Keep every configured player's buffs topped up.
+system.runInterval(() => {
+    for (const player of world.getAllPlayers()) {
+        const config = loadConfig(player);
+        if (config.buffs.length > 0) applyBuffs(player, config, { topUpOnly: true });
     }
-}
+}, REFRESH_INTERVAL_TICKS);
 
-system.afterEvents.scriptEventReceive.subscribe((event) => {
-    if (event.id !== "buff:give") return;
-    const player = event.sourceEntity;
-    if (!player || player.typeId !== "minecraft:player") return;
-    giveWand(player);
-});
-
-// Startup banner so it is easy to confirm which script version actually loaded.
-console.warn(`[BuffWand] script v${VERSION} loaded`);
+// Restore buffs immediately on join and after respawn (death clears all
+// effects) instead of waiting for the next refresh tick.
 world.afterEvents.playerSpawn.subscribe((event) => {
-    // Restore buffs immediately on join and after respawn (death clears all
-    // effects) instead of waiting for the next refresh tick.
     const config = loadConfig(event.player);
     if (config.buffs.length > 0) applyBuffs(event.player, config);
-
-    if (!event.initialSpawn) return;
-    system.runTimeout(() => {
-        event.player.sendMessage(
-            `§d[祝福权杖 v${VERSION}] 已加载：输入 /scriptevent buff:give 获取权杖`
-        );
-    }, 40);
 });

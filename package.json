@@ -1,0 +1,12 @@
+{
+    "name": "wand-toolkit",
+    "version": "1.0.0",
+    "description": "Minecraft Bedrock behavior pack: one wand, one menu, every admin convenience.",
+    "private": true,
+    "type": "module",
+    "license": "MIT",
+    "scripts": {
+        "build": "node tools/build.mjs",
+        "check": "node tools/build.mjs --check"
+    }
+}
